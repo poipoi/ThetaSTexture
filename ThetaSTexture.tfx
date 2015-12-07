@@ -1,0 +1,137 @@
+//@author: poipoi
+//@help: Real time translation from RICOH THETA S streaming video to Pano texture.
+//@tags: 
+//@credits: 
+
+Texture2D texture2d : PREVIOUS;
+
+SamplerState linearSampler : IMMUTABLE
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+struct psInput
+{
+	float4 p : SV_Position;
+	float2 uv : TEXCOORD0;
+};
+
+float2 nPos <string uiname="NormPos"; bool visible = false;> = float2(0.00, -0.15);
+float2 nSize <string uiname="NormSize"; bool visible = false;> = float2(0.89, 0.79);
+float angle <string uiname="RotateAngle"; bool visible = false;> = 0.50;
+
+float2 changeInputPos(float2 pos, bool isLeft)
+{
+	float2 outPos = pos;
+
+	if(isLeft) {
+		outPos.x = pos.x * 2 - 0.5;
+	} else {
+		outPos.x = pos.x * 2 - 1.5;
+	}
+	
+	return outPos;
+}
+
+float2 changePointToTheta(float2 pos, bool isLeft)
+{
+	float2 inAngle = (pos * 2 - 1) * (3.14 / 2);
+	
+	float2 thetaAngle;
+	thetaAngle.x = sin(inAngle.x) * cos(inAngle.y);
+	thetaAngle.y = sin(inAngle.y);
+	
+	float r;
+	float p;
+	r = length(thetaAngle) * 0.9999;	// 0.9999 は表示カケ対策
+	p = atan2(thetaAngle.y, thetaAngle.x);
+	
+	float s;
+	s = asin(r);
+	
+	float rd;
+	rd = tan(s/2);
+	
+	float2 outAngle;
+	outAngle.x = rd * cos(p);
+	outAngle.y = rd * sin(p);
+	
+	float2 outPos = (outAngle + 1) / 2;
+
+	return outPos;
+}
+
+float2 changeOutputPos(float2 pos, bool isLeft)
+{
+	float2 outPos;
+	outPos = pos * 2 - 1;
+	
+	outPos.y += nPos.y;
+	if (isLeft) {
+		outPos.x += nPos.x;
+	} else {
+		outPos.x -= nPos.x;
+	}
+	outPos *= nSize;
+	
+	if (isLeft) {
+		outPos.x = (outPos.x + 1) / 4;
+	} else {
+		outPos.x = (outPos.x + 3) / 4;
+	}
+	outPos.y = (outPos.y + 1) / 2;
+	return outPos;
+}
+
+float2 rotatePos(float2 pos, bool isLeft)
+{
+	float2 outPos = pos;
+	outPos = outPos * 2 - 1;
+	float radAngle = angle * 3.14;
+	
+	if (!isLeft) {
+		radAngle = -radAngle;
+	}
+	
+	float2x2 rotateMat = {
+		cos(radAngle), -sin(radAngle),
+		sin(radAngle), cos(radAngle)
+	};
+	
+	outPos = mul(outPos, rotateMat);
+	
+	outPos = outPos / 2 + 0.5;
+	
+	return outPos;
+}
+
+float4 PS(psInput input) : SV_Target
+{
+	float2 pos;
+	
+	pos = input.uv;
+	
+	bool isLeft = (pos.x < 0.25) || (pos.x >= 0.75);// = (pos.x < 0.5);
+	
+	pos = changeInputPos(pos, isLeft);
+	
+	pos = changePointToTheta(pos, isLeft);
+	
+	pos = rotatePos(pos, isLeft);
+
+	pos = changeOutputPos(pos, isLeft);
+	
+	float4 col = texture2d.Sample(linearSampler, pos);
+	return col;
+}
+
+technique10 Process
+{
+	pass P0
+	{
+		SetPixelShader(CompileShader(ps_4_0,PS()));
+	}
+}
+
